@@ -16,35 +16,23 @@
 # limitations under the License.
 """ PyTorch BTLM model."""
 
-import math
-import os
-import warnings
-from typing import Optional, Tuple, Union
+from vllm.model_executor.input_metadata import InputMetadata
+from vllm.model_executor.layers.activation import SiluAndMul
+from vllm.model_executor.layers.layernorm import RMSNorm
+from vllm.model_executor.layers.attention import PagedAttentionWithRoPE
+from vllm.model_executor.layers.sampler import Sampler
+from vllm.model_executor.weight_utils import (hf_model_weights_iterator,
+                                              load_tensor_parallel_weights)
+from vllm.model_executor.parallel_utils.parallel_state import (
+    get_tensor_model_parallel_rank, get_tensor_model_parallel_world_size)
+from vllm.model_executor.parallel_utils.tensor_parallel import (
+    VocabParallelEmbedding, ColumnParallelLinear, RowParallelLinear)
+from vllm.sequence import SequenceOutputs
 
-import torch
-from torch import Tensor, nn
-from torch.cuda.amp import autocast
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
-from transformers.activations import ACT2FN
-from transformers.modeling_outputs import (
-    BaseModelOutputWithPastAndCrossAttentions,
-    CausalLMOutputWithCrossAttentions,
-    QuestionAnsweringModelOutput,
-    SequenceClassifierOutputWithPast,
-    TokenClassifierOutput,
-)
-from transformers.modeling_utils import PreTrainedModel
-from transformers.pytorch_utils import Conv1D, find_pruneable_heads_and_indices, prune_conv1d_layer
-from transformers.utils import (
-    add_code_sample_docstrings,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    logging,
-)
-from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
 from .configuration_btlm import BTLMConfig
 
+KVCache = Tuple[torch.Tensor, torch.Tensor]
 
 logger = logging.get_logger(__name__)
 
@@ -60,6 +48,58 @@ BTLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
 class SwiGLUActivation(nn.Module):
     def forward(self, x1: Tensor, x2: Tensor) -> Tensor:
         return x1 * nn.functional.silu(x2)
+
+
+class AlibiPositionEmbeddingLayer(nn.Module):
+    def __init__(self, num_heads):
+        super(AlibiPositionEmbeddingLayer, self).__init__()
+
+        self.num_heads = num_heads
+        tensor_model_parallel_world_size = get_tensor_model_parallel_world_size()
+        rank = get_tensor_model_parallel_rank()
+
+        slopes = torch.tensor(AlibiPositionEmbeddingLayer._get_alibi_slopes(num_heads)).unsqueeze(-1)
+        
+        # Shard the slopes tensor across the tensor model parallel group
+        my_num_heads = (num_heads // tensor_model_parallel_world_size) + int(rank < (num_heads % tensor_model_parallel_world_size))
+        self.slopes = VocabParallelEmbedding(my_num_heads, 1, init_tensor=slopes)
+
+    def forward(
+        self,
+        seq_length,
+        key_length,
+        cached_qk_len,
+    ):
+        context_position = torch.arange(
+            cached_qk_len, cached_qk_len + seq_length, device=self.slopes.device
+        )[:, None]
+        memory_position = torch.arange(
+            key_length + cached_qk_len, device=self.slopes.device
+        )[None, :]
+        relative_position = memory_position - context_position
+        relative_position = torch.abs(relative_position).unsqueeze(0).expand(self.num_heads, -1, -1)
+        alibi = (self.slopes * -1.0).unsqueeze(1) * relative_position
+        return alibi
+
+    @staticmethod
+    def _get_alibi_slopes(n):
+        def get_slopes_power_of_2(n):
+            start = 2 ** (-(2 ** -(math.log2(n) - 3)))
+            ratio = start
+            return [start * ratio**i for i in range(n)]
+
+        if math.log2(n).is_integer():
+            return get_slopes_power_of_2(
+                n
+            )  # In the paper, we only train models that have 2^a heads for some a. This function has
+        else:  # some good properties that only occur when the input is a power of 2. To maintain that even
+            closest_power_of_2 = 2 ** math.floor(
+                math.log2(n)
+            )  # when the number of heads is not a power of 2, we use this workaround.
+            return (
+                get_slopes_power_of_2(closest_power_of_2)
+                + AlibiPositionEmbeddingLayer._get_alibi_slopes(2 * closest_power_of_2)[0::2][: n - closest_power_of_2]
+            )
 
 class BTLMAttention(nn.Module):
 
@@ -170,6 +210,7 @@ class BTLMModel(nn.Module):
 
         self.embed_dim = config.hidden_size
         self.wte = VocabParallelEmbedding(config.vocab_size, self.embed_dim, perform_initialization=False)
+        self.relative_pe = AlibiPositionEmbeddingLayer(config.num_attention_heads)
         self.h = nn.ModuleList([BTLMBlock(config, layer_idx=i) for i in range(config.num_hidden_layers)])
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
@@ -181,20 +222,38 @@ class BTLMModel(nn.Module):
         input_metadata: InputMetadata,
         cache_events: Optional[List[torch.cuda.Event]],
     ) -> torch.Tensor:
-        hidden_states = self.wte(input_ids)
-        for i in range(len(self.h)):
-            if cache_events is None:
-                cache_event = None
-            else:
-                cache_event = cache_events[i]
-            layer = self.h[i]
-            hidden_states = layer(
-                position_ids,
-                hidden_states,
-                kv_caches[i],
-                input_metadata,
-                cache_event,
-            )
+
+        if self.relative_pe is not None:
+            length = input_ids.shape[1]
+            cached_kv_length = 0
+            cached_kv = past_key_values[0]
+            if cached_kv is not None:
+                cached_kv_length = cached_kv[0].shape[-2]
+            position_bias = self.relative_pe(length, length, cached_kv_length)
+        else:
+            position_bias = None
+
+        past_length = 0
+        past_key_values = tuple([None] * len(self.h))
+
+        for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
+
+        # hidden_states = self.wte(input_ids)
+        # for i in range(len(self.h)):
+        #     if cache_events is None:
+        #         cache_event = None
+        #     else:
+        #         cache_event = cache_events[i]
+        #     layer = self.h[i]
+        #     hidden_states = layer(
+        #         position_ids,
+        #         hidden_states,
+        #         kv_caches[i],
+        #         input_metadata,
+        #         cache_event,
+        #     )
+
+        
         hidden_states = self.ln_f(hidden_states)
         return hidden_states
 
