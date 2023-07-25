@@ -7,7 +7,7 @@ from vllm.model_executor.models.gpt_neox import GPTNeoXForCausalLM
 from vllm.model_executor.models.llama import LlamaForCausalLM
 from vllm.model_executor.models.mpt import MPTForCausalLM
 from vllm.model_executor.models.opt import OPTForCausalLM
-
+from vllm.model_executor.models.btlm import BTLMForCausalLM
 __all__ = [
     "BaiChuanForCausalLM",
     "BloomForCausalLM",
@@ -18,4 +18,5 @@ __all__ = [
     "LlamaForCausalLM",
     "MPTForCausalLM",
     "OPTForCausalLM",
+    "BTLMForCausalLM",
 ]
