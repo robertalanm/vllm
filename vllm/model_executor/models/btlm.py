@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """ PyTorch BTLM model."""
-
+from vllm.model_executor.config.configuration_btlm import BTLMConfig
 from vllm.model_executor.input_metadata import InputMetadata
 from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.layernorm import RMSNorm
@@ -30,7 +30,6 @@ from vllm.model_executor.parallel_utils.tensor_parallel import (
 from vllm.sequence import SequenceOutputs
 
 
-from .configuration_btlm import BTLMConfig
 
 KVCache = Tuple[torch.Tensor, torch.Tensor]
 
@@ -210,7 +209,7 @@ class BTLMModel(nn.Module):
 
         self.embed_dim = config.hidden_size
         self.wte = VocabParallelEmbedding(config.vocab_size, self.embed_dim, perform_initialization=False)
-        self.relative_pe = AlibiPositionEmbeddingLayer(config.num_attention_heads)
+        # self.relative_pe = AlibiPositionEmbeddingLayer(config.num_attention_heads)
         self.h = nn.ModuleList([BTLMBlock(config, layer_idx=i) for i in range(config.num_hidden_layers)])
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
@@ -236,22 +235,22 @@ class BTLMModel(nn.Module):
         past_length = 0
         past_key_values = tuple([None] * len(self.h))
 
-        for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
+        # for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
 
-        # hidden_states = self.wte(input_ids)
-        # for i in range(len(self.h)):
-        #     if cache_events is None:
-        #         cache_event = None
-        #     else:
-        #         cache_event = cache_events[i]
-        #     layer = self.h[i]
-        #     hidden_states = layer(
-        #         position_ids,
-        #         hidden_states,
-        #         kv_caches[i],
-        #         input_metadata,
-        #         cache_event,
-        #     )
+        hidden_states = self.wte(input_ids)
+        for i in range(len(self.h)):
+            if cache_events is None:
+                cache_event = None
+            else:
+                cache_event = cache_events[i]
+            layer = self.h[i]
+            hidden_states = layer(
+                position_ids,
+                hidden_states,
+                kv_caches[i],
+                input_metadata,
+                cache_event,
+            )
 
         
         hidden_states = self.ln_f(hidden_states)
