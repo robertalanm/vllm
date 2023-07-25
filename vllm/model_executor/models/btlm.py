@@ -18,7 +18,7 @@
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 from transformers import LlamaConfig
 
 from vllm.model_executor.config.configuration_btlm import BTLMConfig
