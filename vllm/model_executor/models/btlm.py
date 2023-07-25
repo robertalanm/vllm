@@ -15,6 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """ PyTorch BTLM model."""
+from typing import Dict, List, Optional, Tuple
+
+import torch
+from torch import nn
+from transformers import LlamaConfig
+
 from vllm.model_executor.config.configuration_btlm import BTLMConfig
 from vllm.model_executor.input_metadata import InputMetadata
 from vllm.model_executor.layers.activation import SiluAndMul
