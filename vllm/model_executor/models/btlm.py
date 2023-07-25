@@ -39,17 +39,6 @@ from vllm.sequence import SequenceOutputs
 
 KVCache = Tuple[torch.Tensor, torch.Tensor]
 
-logger = logging.get_logger(__name__)
-
-_CHECKPOINT_FOR_DOC = "cerebras/btlm-3b-8k-base"
-_CONFIG_FOR_DOC = "BTLMConfig"
-
-BTLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "cerebras/btlm-3b-8k-base",
-    # See all BTLM models at https://huggingface.co/models?filter=btlm
-]
-
-
 class SwiGLUActivation(nn.Module):
     def forward(self, x1: Tensor, x2: Tensor) -> Tensor:
         return x1 * nn.functional.silu(x2)
