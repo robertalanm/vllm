@@ -249,3 +249,96 @@ class GPTJForCausalLM(nn.Module):
             load_tensor_parallel_weights(param, loaded_weight, name,
                                          self._column_parallel_weights,
                                          self._row_parallel_weights, tp_rank)
+
+
+class GPTJForSequenceClassification(nn.Module):
+
+    def __init__(self, config: GPTJConfig):
+        super().__init__()
+        self.config = config
+        self.num_labels = config.num_labels
+
+        # Using the fast transformer model.
+        self.transformer = GPTJModel(config)
+        self.score = ColumnParallelLinear(config.n_embd, 
+                                          self.num_labels, 
+                                          gather_output=False, 
+                                          perform_initialization=False)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+        kv_caches: List[KVCache],
+        input_metadata: InputMetadata,
+        cache_events: Optional[List[torch.cuda.Event]] = None,
+        labels: Optional[torch.LongTensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        
+        hidden_states = self.transformer(
+            input_ids, 
+            positions, 
+            kv_caches, 
+            input_metadata, 
+            cache_events
+        )
+        
+        logits = self.score(hidden_states)
+
+        # Extracting the logits from the last token in each sequence
+        if self.config.pad_token_id is None:
+            sequence_lengths = -1
+        else:
+            sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1).to(logits.device)
+
+        pooled_logits = logits[torch.arange(input_ids.shape[0], device=logits.device), sequence_lengths]
+
+        outputs = {"logits": pooled_logits}
+
+        # Add a loss if labels are provided
+        if labels is not None:
+            if self.num_labels == 1:
+                # Regression task
+                loss_fct = nn.MSELoss()
+                loss = loss_fct(pooled_logits.view(-1), labels.view(-1))
+            else:
+                # Classification task
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))
+            outputs["loss"] = loss
+
+        return outputs
+
+    def load_weights(self,
+                     model_name_or_path: str,
+                     cache_dir: Optional[str] = None,
+                     use_np_cache: bool = False):
+        tp_rank = get_tensor_model_parallel_rank()
+        state_dict = self.state_dict()
+        for name, loaded_weight in hf_model_weights_iterator(
+                model_name_or_path, cache_dir, use_np_cache):
+            if "attn.bias" in name or "attn.masked_bias" in name:
+                continue
+
+            is_attention_weight = False
+            for stride_id, att_weight_name in enumerate(
+                ["q_proj", "k_proj", "v_proj"]):
+                if att_weight_name not in name:
+                    continue
+                param = state_dict[name.replace(att_weight_name, "qkv_proj")]
+                shard_size = param.shape[1]
+                loaded_weight = loaded_weight[shard_size * tp_rank:shard_size *
+                                              (tp_rank + 1)]
+                param_slice = param.data[shard_size * stride_id:shard_size *
+                                         (stride_id + 1)]
+                assert param_slice.shape == loaded_weight.shape
+                param_slice.copy_(loaded_weight)
+                is_attention_weight = True
+                break
+            if is_attention_weight:
+                continue
+
+            param = state_dict[name]
+            load_tensor_parallel_weights(param, loaded_weight, name,
+                                         self._column_parallel_weights,
+                                         self._row_parallel_weights, tp_rank)
