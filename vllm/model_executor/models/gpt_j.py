@@ -285,28 +285,17 @@ class GPTJForSequenceClassification(nn.Module):
         
         logits = self.score(hidden_states)
 
-        # Extracting the logits from the last token in each sequence
         if self.config.pad_token_id is None:
-            sequence_lengths = -1
+            sequence_lengths = torch.full((input_ids.shape[0],), -1, dtype=torch.long)
         else:
             sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1)
 
-        pooled_logits = logits[torch.arange(input_ids.shape[0]), sequence_lengths]
+        indices = torch.arange(input_ids.shape[0], device=input_ids.device)
+        pooled_logits = logits[indices, sequence_lengths]
 
-        outputs = {"logits": pooled_logits}
-
-        # Add a loss if labels are provided
-        if labels is not None:
-            if self.num_labels == 1:
-                # Regression task
-                loss_fct = nn.MSELoss()
-                loss = loss_fct(pooled_logits.view(-1), labels.view(-1))
-            else:
-                # Classification task
-                loss_fct = nn.CrossEntropyLoss()
-                loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))
-            outputs["loss"] = loss
-
+        outputs = {
+            "logits": pooled_logits
+        }
         return outputs
 
     _column_parallel_weights = [
