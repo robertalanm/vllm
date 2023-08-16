@@ -281,22 +281,12 @@ class GPTJForSequenceClassification(nn.Module):
             kv_caches, 
             input_metadata, 
             cache_events
-        )
+        )[0]
         
         logits = self.score(hidden_states)
+        
 
-        if self.config.pad_token_id is None:
-            sequence_lengths = torch.full((input_ids.shape[0],), -1, dtype=torch.long)
-        else:
-            sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1)
-
-        indices = torch.arange(input_ids.shape[0], device=input_ids.device)
-        pooled_logits = logits[0][indices, sequence_lengths]
-
-        outputs = {
-            "logits": pooled_logits
-        }
-        return outputs
+        return logits
 
     _column_parallel_weights = [
         "wte.weight", "fc_in.weight", "fc_in.bias", "lm_head.weight",
