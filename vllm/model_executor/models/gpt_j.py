@@ -289,9 +289,9 @@ class GPTJForSequenceClassification(nn.Module):
         if self.config.pad_token_id is None:
             sequence_lengths = -1
         else:
-            sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1).to(logits.device)
+            sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1)
 
-        pooled_logits = logits[torch.arange(input_ids.shape[0], device=logits.device), sequence_lengths]
+        pooled_logits = logits[torch.arange(input_ids.shape[0]), sequence_lengths]
 
         outputs = {"logits": pooled_logits}
 
