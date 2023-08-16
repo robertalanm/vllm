@@ -290,7 +290,7 @@ class GPTJForSequenceClassification(nn.Module):
         else:
             sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1)
 
-        indices = torch.arange(input_ids.shape[0], device=input_ids.device)
+        indices = torch.arange(input_ids.shape[0])
         pooled_logits = logits[indices, sequence_lengths]
 
         outputs = {
