@@ -333,6 +333,7 @@ class LLMEngine:
         else:
             # print('\n\n\n\nrinning')
             # print(output['reward'].item())
+            print(seq_groups)
             self._decode_reward_sequences(seq_groups)
 
             self.scheduler.free_finished_seq_groups()
@@ -415,7 +416,6 @@ class LLMEngine:
     def _decode_reward_sequences(self, seq_groups: List[SequenceGroup]) -> None:
         '''Decodes the sequence outputs for reward model.'''
         for seq_group in seq_groups:
-            print(seq_group)
             for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
                 score = seq.output_tokens.item()
                 print(score)
