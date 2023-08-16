@@ -286,9 +286,9 @@ class GPTJForSequenceClassification(nn.Module):
         rewards = self.score(hidden_states)[0]
         # ends = torch.argmax((input_ids == 50257).type(torch.float32), dim=1).view(-1, 1)
         # rewards = torch.gather(rewards, 1, ends)
-        outputs = {"rewards": rewards.item()}
+        outputs = {"rewards": rewards}
         
-        return outputs
+        return rewards
         
     _column_parallel_weights = [
         "wte.weight", "fc_in.weight", "fc_in.bias", "lm_head.weight",
