@@ -331,6 +331,7 @@ class LLMEngine:
             self.scheduler.free_finished_seq_groups()
 
         else:
+            print('\n\n\n\nrinning')
             self._decode_reward_sequences(seq_groups)
 
             self.scheduler.free_finished_seq_groups()
@@ -418,6 +419,8 @@ class LLMEngine:
                 if score is not None:
                     seq.output_tokens.append(score)
                     seq.output_text = score
+                    self.scheduler.free_seq(
+                    seq, SequenceStatus.FINISHED_STOPPED)
                     
     def _decode_sequences(self, seq_groups: List[SequenceGroup]) -> None:
         """Decodes the sequence outputs."""
