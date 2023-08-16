@@ -332,6 +332,7 @@ class LLMEngine:
 
         else:
             print('\n\n\n\nrinning')
+            print(output)
             self._decode_reward_sequences(seq_groups)
 
             self.scheduler.free_finished_seq_groups()
