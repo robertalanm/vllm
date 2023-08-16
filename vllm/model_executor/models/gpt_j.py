@@ -286,6 +286,7 @@ class GPTJForSequenceClassification(nn.Module):
         logits = self.score(hidden_states)
         # ends = torch.argmax((input_ids == 50257).type(torch.float32), dim=1).view(-1, 1)
         # rewards = torch.gather(rewards, 1, ends)
+        print(logits.shape)
         rewards = torch.argmax(logits, dim=1)
         outputs = {"logits": logits, "rewards": rewards}
         
