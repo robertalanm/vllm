@@ -309,6 +309,13 @@ class GPTJForSequenceClassification(nn.Module):
 
         return outputs
 
+    _column_parallel_weights = [
+        "wte.weight", "fc_in.weight", "fc_in.bias", "lm_head.weight",
+        "lm_head.bias", "score.bias"
+    ]
+    _row_parallel_weights = ["out_proj.weight", "fc_out.weight"]
+
+
     def load_weights(self,
                      model_name_or_path: str,
                      cache_dir: Optional[str] = None,
