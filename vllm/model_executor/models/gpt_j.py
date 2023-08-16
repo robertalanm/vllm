@@ -283,7 +283,7 @@ class GPTJForSequenceClassification(nn.Module):
             cache_events
         )[0]
         
-        logits = self.score(hidden_states)
+        logits = self.score(hidden_states)[0]
         # ends = torch.argmax((input_ids == 50257).type(torch.float32), dim=1).view(-1, 1)
         # rewards = torch.gather(rewards, 1, ends)
         print(logits)
