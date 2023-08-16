@@ -284,10 +284,12 @@ class GPTJForSequenceClassification(nn.Module):
         )[0]
         
         logits = self.score(hidden_states)
+        ends = torch.argmax((input_ids == 50257).type(torch.float32), dim=1).view(-1, 1)
+        rewards = torch.gather(rewards, 1, ends)
+        outputs = {"logits": logits, "rewards": rewards}
         
-
-        return logits
-
+        return outputs
+        
     _column_parallel_weights = [
         "wte.weight", "fc_in.weight", "fc_in.bias", "lm_head.weight",
         "lm_head.bias", "score.bias"
