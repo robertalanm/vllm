@@ -320,14 +320,22 @@ class LLMEngine:
         # Update the scheduler with the model outputs.
         seq_groups = self.scheduler.update(output)
 
-        # Decode the sequences.
-        self._decode_sequences(seq_groups)
-        # Stop the sequences that meet the stopping criteria.
-        self._stop_sequences(seq_groups)
-        # Free the finished sequence groups.
-        self.scheduler.free_finished_seq_groups()
 
-        # Create the outputs.
+        # lazy fix, will need more comprehensive solution
+        if self.model_config.model != "reciprocate/gpt-j_rm_format-oa":
+            # Decode the sequences.
+            self._decode_sequences(seq_groups)
+            # Stop the sequences that meet the stopping criteria.
+            self._stop_sequences(seq_groups)
+            # Free the finished sequence groups.
+            self.scheduler.free_finished_seq_groups()
+
+        else:
+            self._decode_reward_sequences(seq_groups)
+
+            self.scheduler.free_finished_seq_groups()
+
+            # Create the outputs.
         request_outputs: List[RequestOutput] = []
         for seq_group in seq_groups + scheduler_outputs.ignored_seq_groups:
             request_output = RequestOutput.from_seq_group(seq_group)
@@ -336,7 +344,7 @@ class LLMEngine:
         if self.log_stats:
             # Log the system stats.
             self._log_system_stats(scheduler_outputs.prompt_run,
-                                   scheduler_outputs.num_batched_tokens)
+                                scheduler_outputs.num_batched_tokens)
         return request_outputs
 
     def _log_system_stats(
@@ -402,6 +410,15 @@ class LLMEngine:
                     f"CPU KV cache usage: {cpu_cache_usage * 100:.1f}%")
         self.last_logging_time = now
 
+    def _decode_reward_sequences(self, seq_groups: List[SequenceGroup]) -> None:
+        '''Decodes the sequence outputs for reward model.'''
+        for seq_group in seq_groups:
+            for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
+                score = seq.output_tokens.item()
+                if score is not None:
+                    seq.output_tokens.append(score)
+                    seq.output_text = score
+                    
     def _decode_sequences(self, seq_groups: List[SequenceGroup]) -> None:
         """Decodes the sequence outputs."""
         for seq_group in seq_groups:
