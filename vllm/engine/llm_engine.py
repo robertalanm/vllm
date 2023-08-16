@@ -333,10 +333,11 @@ class LLMEngine:
         else:
             # print('\n\n\n\nrinning')
             # print(output['reward'].item())
-            print(seq_groups)
-            self._decode_reward_sequences(seq_groups)
+            # print(seq_groups)
+            # self._decode_reward_sequences(seq_groups)
 
-            self.scheduler.free_finished_seq_groups()
+            # self.scheduler.free_finished_seq_groups()
+            return output
 
             # Create the outputs.
         request_outputs: List[RequestOutput] = []

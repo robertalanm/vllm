@@ -145,18 +145,19 @@ class LLM:
             num_requests = self.llm_engine.get_num_unfinished_requests()
             pbar = tqdm(total=num_requests, desc="Processed prompts")
         # Run the engine.
-        outputs: List[RequestOutput] = []
-        while self.llm_engine.has_unfinished_requests():
-            step_outputs = self.llm_engine.step()
-            for output in step_outputs:
-                if output.finished:
-                    outputs.append(output)
-                    if use_tqdm:
-                        pbar.update(1)
-        if use_tqdm:
-            pbar.close()
-        # Sort the outputs by request ID.
-        # This is necessary because some requests may be finished earlier than
-        # its previous requests.
-        outputs = sorted(outputs, key=lambda x: int(x.request_id))
+        # outputs: List[RequestOutput] = []
+        # while self.llm_engine.has_unfinished_requests():
+        #     step_outputs = self.llm_engine.step()
+        #     for output in step_outputs:
+        #         if output.finished:
+        #             outputs.append(output)
+        #             if use_tqdm:
+        #                 pbar.update(1)
+        # if use_tqdm:
+        #     pbar.close()
+        # # Sort the outputs by request ID.
+        # # This is necessary because some requests may be finished earlier than
+        # # its previous requests.
+        # outputs = sorted(outputs, key=lambda x: int(x.request_id))
+        outputs = self.llm_engine.step()
         return outputs
